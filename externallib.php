@@ -52,7 +52,7 @@ class local_jwttomoodletoken_external extends external_api {
      * @throws invalid_parameter_exception
      */
     public static function gettoken($accesstoken) {
-        global $CFG, $DB, $PAGE, $USER;
+        global $CFG, $DB, $PAGE, $SITE, $USER;
         $PAGE->set_url('/webservice/rest/server.php', []);
         $params = self::validate_parameters(self::gettoken_parameters(), [
                 'accesstoken' => $accesstoken
@@ -61,7 +61,7 @@ class local_jwttomoodletoken_external extends external_api {
         $pubkey = get_config('local_jwttomoodletoken', 'pubkey');
         $pubalgo = get_config('local_jwttomoodletoken', 'pubalgo');
 
-        $token_contents = JWT\JWT::decode($params['accesstoken'], $pubkey, [$pubalgo]);
+        $token_contents = JWT\JWT::decode($params['accesstoken'], new JWT\Key($pubkey, $pubalgo));
 
         // TODO si ok validate signature, expiration etc. => sinon HTTP unauthorized 401
 
@@ -83,10 +83,12 @@ class local_jwttomoodletoken_external extends external_api {
                     'deleted'      => 0,
                     'suspended'    => 0,
                     'username'     => $email,
+                    'email'        => $email,
                     'password'     => 'not cached',
                     'firstname'    => $email,
                     'lastname'     => $email,
                     'timecreated'  => time(),
+                    'mnethostid'   => $SITE->id,
             ];
             $newuserid = $DB->insert_record('user', $newuser);
             $user = $DB->get_record('user', ['id' => $newuserid], '*', MUST_EXIST);
