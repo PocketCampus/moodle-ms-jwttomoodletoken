@@ -27,111 +27,148 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->dirroot . '/lib/php-jwt/src/JWT.php');
 
 use \Firebase\JWT;
+use Firebase\JWT\Key;
 
 // cf. https://github.com/firebase/php-jwt
 
 require_once($CFG->libdir . '/externallib.php');
 
-class local_jwttomoodletoken_external extends external_api {
-
-    /**
-     * @return external_multiple_structure
-     */
-    public static function gettoken_returns() {
-        return new external_single_structure([
-                'moodletoken' => new external_value(PARAM_ALPHANUM, 'valid Moodle mobile token')
-        ]);
-    }
-
-    /**
-     * @param $useremail
-     * @param $since
-     *
-     * @return array
-     * @throws coding_exception
-     * @throws invalid_parameter_exception
-     */
-    public static function gettoken($accesstoken) {
-        global $CFG, $DB, $PAGE, $SITE, $USER;
-        $PAGE->set_url('/webservice/rest/server.php', []);
-        $params = self::validate_parameters(self::gettoken_parameters(), [
-                'accesstoken' => $accesstoken
-        ]);
-
-        $pubkey = get_config('local_jwttomoodletoken', 'pubkey');
-        $pubalgo = get_config('local_jwttomoodletoken', 'pubalgo');
-
-        $token_contents = JWT\JWT::decode($params['accesstoken'], new JWT\Key($pubkey, $pubalgo));
-
-        // TODO si ok validate signature, expiration etc. => sinon HTTP unauthorized 401
-
-        $email = strtolower($token_contents->email);
-
-        $user = $DB->get_record('user', [
-                'username'  => $email,
-                'auth'      => 'shibboleth',
-                'suspended' => 0,
-                'deleted'   => 0
-        ], '*', IGNORE_MISSING);
-
-        if (!$user) {
-            // We have to create this user as it does not yet exist.
-            $newuser = (object)[
-                    'auth'         => 'shibboleth',
-                    'confirmed'    => 1,
-                    'policyagreed' => 0,
-                    'deleted'      => 0,
-                    'suspended'    => 0,
-                    'username'     => $email,
-                    'email'        => $email,
-                    'password'     => 'not cached',
-                    'firstname'    => $email,
-                    'lastname'     => $email,
-                    'timecreated'  => time(),
-                    'mnethostid'   => $SITE->id,
-            ];
-            $newuserid = $DB->insert_record('user', $newuser);
-            $user = $DB->get_record('user', ['id' => $newuserid], '*', MUST_EXIST);
+class local_jwttomoodletoken_external extends external_api
+{
+		private $keyfile = "/local/ost/config/pubkey.json";
+        /**
+         * @return external_multiple_structure
+         */
+        public static function gettoken_returns()
+        {
+                return new external_single_structure([
+                        'moodletoken' => new external_value(PARAM_ALPHANUM, 'valid Moodle mobile token')
+                ]);
         }
 
-        // Check if the service exists and is enabled.
-        $service = $DB->get_record('external_services', [
-                'shortname' => 'moodle_mobile_app',
-                'enabled'   => 1
-        ]);
-        if (empty($service)) {
-            throw new moodle_exception('servicenotavailable', 'webservice');
-            http_response_code(503);
-            die();
+        private static function update_public_keys()
+        {
+                global $CFG;
+
+                $ms_data = file_get_contents('https://login.microsoftonline.com/***DOMAIN***/discovery/v2.0/keys');
+                $keys_object = json_decode($ms_data);
+                $keyDir = [];
+                foreach ($keys_object->keys as $key) {
+                        $x5c = $key->x5c[0];
+                        $kid = $key->kid;
+                        $beginpem = "-----BEGIN CERTIFICATE-----\n";
+                        $endpem = "-----END CERTIFICATE-----\n";
+                        $pemdata = $beginpem . chunk_split($x5c, 64) . $endpem;
+                        $cert = openssl_x509_read($pemdata);
+                        $pubkey = openssl_pkey_get_public($cert);
+                        $keydata = openssl_pkey_get_details($pubkey);
+                        $publickey =  $keydata['key'];
+                        $keyDir[$kid] = $publickey;
+                }
+                file_put_contents($CFG->dirroot . $this->keyfile, json_encode($keyDir));
         }
 
-        // Get an existing token or create a new one.
-        //        require_once($CFG->dirroot . '/lib/externallib.php');
-        //        $validuntil = time() + $CFG->tokenduration; // Défaut : 12 semaines
-        //        $token = external_generate_token(EXTERNAL_TOKEN_PERMANENT, $service, $user->id, \context_system::instance(),
-        //                $validuntil);
+        private static function get_pubkey_by_accesstoken($accesstoken)
+        {
+                global $CFG;
 
-        // Ugly hack.
-        $realuser = $USER;
-        $USER = $user;
-        $token = external_generate_token_for_current_user($service);
-        $USER = $realuser;
+                $part = explode('.', $accesstoken)[0];
+                $string = base64_decode($part, true);
+                $header = json_decode($string);
+                $data = file_get_contents($CFG->dirroot . $this->keyfile);
+                $keys = json_decode($data);
+                $kid = $header->kid;
+                if (!isset($keys->$kid)) {
+                        self::update_public_keys();
+                        $keys = json_decode(file_get_contents($CFG->dirroot . $this->keyfile));
+                        $kid = $header->kid;
+                }
+                return [$keys->$kid, $header->alg];
+        }
 
-        external_log_token_request($token);
+        /**
+         * @param $useremail
+         * @param $since
+         *
+         * @return array
+         * @throws coding_exception
+         * @throws invalid_parameter_exception
+         */
+        public static function gettoken($accesstoken)
+        {
+                global $CFG, $DB, $PAGE, $USER;
 
-        return [
-                'moodletoken' => $token->token
-        ];
-    }
+                list($pubkey, $pubalgo) =  self::get_pubkey_by_accesstoken($accesstoken);
+                
+                $PAGE->set_url('/webservice/rest/server.php', []);
+                $params = self::validate_parameters(self::gettoken_parameters(), [
+                        'accesstoken' => $accesstoken
+                ]);
 
-    /**
-     * @return external_function_parameters
-     */
-    public static function gettoken_parameters() {
-        return new external_function_parameters([
-                'accesstoken' => new external_value(PARAM_RAW_TRIMMED, 'the JWT access token as yielded by keycloak')
-        ]);
-    }
+                // $pubkey = get_config('local_jwttomoodletoken', 'pubkey');
+                // $pubalgo = get_config('local_jwttomoodletoken', 'pubalgo');
 
+                // $token_contents = JWT\JWT::decode($params['accesstoken'], $pubkey, [$pubalgo]);
+                $token_contents = JWT\JWT::decode($params['accesstoken'], new JWT\Key($pubkey, $pubalgo));
+                // $data = JWT::decode($token, new Key($topSecret, 'HS256'));
+                // TODO si ok validate signature, expiration etc. => sinon HTTP unauthorized 401
+
+                $email = strtolower($token_contents->email) ?: strtolower($token_contents->preferred_username) ?: strtolower($token_contents->unique_name);
+
+                // $user = $DB->get_record('user', [
+                //         'email'  => $email,
+                //         'auth'      => 'shibboleth',
+                //         'suspended' => 0,
+                //         'deleted'   => 0
+                // ], '*', MUST_EXIST);
+                $user = $DB->get_record_sql('select * from {user} 
+             where username like \'%@ost.ch\' and email=:email and auth=\'shibboleth\' and suspended=0 and deleted=0 and idnumber>0', [
+                        'email'  => $email,
+                ], MUST_EXIST);
+
+                if (!$user) {
+                        throw new moodle_exception('invaliduser', 'webservice');
+                        http_response_code(503);
+                        die();
+                }
+
+                // Check if the service exists and is enabled.
+                $service = $DB->get_record('external_services', [
+                        'shortname' => 'moodle_mobile_app',
+                        'enabled'   => 1
+                ]);
+                if (empty($service)) {
+                        throw new moodle_exception('servicenotavailable', 'webservice');
+                        http_response_code(503);
+                        die();
+                }
+
+                // Get an existing token or create a new one.
+                //        require_once($CFG->dirroot . '/lib/externallib.php');
+                //        $validuntil = time() + $CFG->tokenduration; // Défaut : 12 semaines
+                //        $token = external_generate_token(EXTERNAL_TOKEN_PERMANENT, $service, $user->id, \context_system::instance(),
+                //                $validuntil);
+
+                // Ugly hack.
+                $realuser = $USER;
+                $USER = $user;
+                $token = external_generate_token_for_current_user($service);
+                $USER = $realuser;
+
+                external_log_token_request($token);
+
+                return [
+                        'moodletoken' => $token->token
+                ];
+        }
+
+        /**
+         * @return external_function_parameters
+         */
+        public static function gettoken_parameters()
+        {
+                return new external_function_parameters([
+                        'accesstoken' => new external_value(PARAM_RAW_TRIMMED, 'the JWT access token as yielded by keycloak')
+                ]);
+        }
 }
-
