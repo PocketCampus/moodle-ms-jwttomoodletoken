@@ -18,7 +18,9 @@
 /**
  * @package    local_jwttomoodletoken
  * @author     Nicolas Dunand <nicolas.dunand@unil.ch>
- * @copyright  2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
+ * @author     Amer Chamseddine <amer@pocketcampus.org>
+ * @copyright  2024 Copyright PocketCampus Sàrl {@link https://pocketcampus.org/}
+ * @copyright  based on work by 2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -38,7 +40,7 @@ $functions = [
                 'classname'   => 'local_jwttomoodletoken_external',
                 'methodname'  => 'gettoken',
                 'classpath'   => 'local/jwttomoodletoken/externallib.php',
-                'description' => 'given a valid Unil keycloak jwt, provides mobile token for PocketCampus ',
+                'description' => 'given a valid OIDC JWT token, return the corresponding Moodle mobile token',
                 'type'        => 'write'
         ]
 ];

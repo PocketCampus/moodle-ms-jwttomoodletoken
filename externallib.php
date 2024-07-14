@@ -18,7 +18,9 @@
 /**
  * @package    local_jwttomoodletoken
  * @author     Nicolas Dunand <nicolas.dunand@unil.ch>
- * @copyright  2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
+ * @author     Amer Chamseddine <amer@pocketcampus.org>
+ * @copyright  2024 Copyright PocketCampus Sàrl {@link https://pocketcampus.org/}
+ * @copyright  based on work by 2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -27,77 +29,100 @@ defined('MOODLE_INTERNAL') || die();
 require_once($CFG->dirroot . '/lib/php-jwt/src/JWT.php');
 
 use \Firebase\JWT;
+use Firebase\JWT\Key;
 
 // cf. https://github.com/firebase/php-jwt
 
 require_once($CFG->libdir . '/externallib.php');
 
 class local_jwttomoodletoken_external extends external_api {
-
     /**
      * @return external_multiple_structure
      */
     public static function gettoken_returns() {
         return new external_single_structure([
-                'moodletoken' => new external_value(PARAM_ALPHANUM, 'valid Moodle mobile token')
+            'moodletoken' => new external_value(PARAM_ALPHANUM, 'valid Moodle mobile token')
         ]);
     }
 
-    /**
-     * @param $useremail
-     * @param $since
-     *
-     * @return array
-     * @throws coding_exception
-     * @throws invalid_parameter_exception
-     */
+    private static function update_public_keys() {
+        global $CFG;
+
+        $pub_key_discovery_url = get_config('local_jwttomoodletoken', 'pub_key_discovery_url');
+        $pub_key_cache_file_path = get_config('local_jwttomoodletoken', 'pub_key_cache_file_path');
+
+        $ms_data = file_get_contents($pub_key_discovery_url);
+        $keys_object = json_decode($ms_data);
+        $keyDir = [];
+        foreach ($keys_object->keys as $key) {
+            $x5c = $key->x5c[0];
+            $kid = $key->kid;
+            $beginpem = "-----BEGIN CERTIFICATE-----\n";
+            $endpem = "-----END CERTIFICATE-----\n";
+            $pemdata = $beginpem . chunk_split($x5c, 64) . $endpem;
+            $cert = openssl_x509_read($pemdata);
+            $pubkey = openssl_pkey_get_public($cert);
+            $keydata = openssl_pkey_get_details($pubkey);
+            $publickey = $keydata['key'];
+            $keyDir[$kid] = $publickey;
+        }
+        $filepath = $CFG->dirroot . $pub_key_cache_file_path;
+        mkdir(dirname($filepath), 0777, true);
+        file_put_contents($filepath, json_encode($keyDir));
+    }
+
+    private static function get_pubkey_by_accesstoken($accesstoken) {
+        global $CFG;
+
+        $pub_key_cache_file_path = get_config('local_jwttomoodletoken', 'pub_key_cache_file_path');
+
+        $header = json_decode(base64_decode(explode('.', $accesstoken)[0], true));
+        $kid = $header->kid;
+        $filepath = $CFG->dirroot . $pub_key_cache_file_path;
+        if (!is_file($filepath)) {
+            self::update_public_keys();
+        }
+        $keys = json_decode(file_get_contents($filepath));
+        if (!isset($keys->$kid)) {
+            self::update_public_keys();
+            $keys = json_decode(file_get_contents($filepath));
+        }
+        return [$keys->$kid, $header->alg];
+    }
+
     public static function gettoken($accesstoken) {
-        global $CFG, $DB, $PAGE, $SITE, $USER;
+        global $DB, $PAGE, $USER;
+
+        list($pubkey, $pubalgo) = self::get_pubkey_by_accesstoken($accesstoken);
+
         $PAGE->set_url('/webservice/rest/server.php', []);
         $params = self::validate_parameters(self::gettoken_parameters(), [
-                'accesstoken' => $accesstoken
+            'accesstoken' => $accesstoken
         ]);
 
-        $pubkey = get_config('local_jwttomoodletoken', 'pubkey');
-        $pubalgo = get_config('local_jwttomoodletoken', 'pubalgo');
+        $read_jwt_attribute = get_config('local_jwttomoodletoken', 'read_jwt_attribute');
+        $matched_user_attribute = get_config('local_jwttomoodletoken', 'matched_user_attribute');
+        $match_auth_type = get_config('local_jwttomoodletoken', 'match_auth_type');
 
         $token_contents = JWT\JWT::decode($params['accesstoken'], new JWT\Key($pubkey, $pubalgo));
 
-        // TODO si ok validate signature, expiration etc. => sinon HTTP unauthorized 401
-
-        $email = strtolower($token_contents->email);
-
         $user = $DB->get_record('user', [
-                'username'  => $email,
-                'auth'      => 'shibboleth',
-                'suspended' => 0,
-                'deleted'   => 0
-        ], '*', IGNORE_MISSING);
+            $matched_user_attribute  => $token_contents->$read_jwt_attribute,
+            'auth'      => $match_auth_type,
+            'suspended' => 0,
+            'deleted'   => 0
+        ], '*', MUST_EXIST);
 
         if (!$user) {
-            // We have to create this user as it does not yet exist.
-            $newuser = (object)[
-                    'auth'         => 'shibboleth',
-                    'confirmed'    => 1,
-                    'policyagreed' => 0,
-                    'deleted'      => 0,
-                    'suspended'    => 0,
-                    'username'     => $email,
-                    'email'        => $email,
-                    'password'     => 'not cached',
-                    'firstname'    => $email,
-                    'lastname'     => $email,
-                    'timecreated'  => time(),
-                    'mnethostid'   => $SITE->id,
-            ];
-            $newuserid = $DB->insert_record('user', $newuser);
-            $user = $DB->get_record('user', ['id' => $newuserid], '*', MUST_EXIST);
+            throw new moodle_exception('invaliduser', 'webservice');
+            http_response_code(503);
+            die();
         }
 
         // Check if the service exists and is enabled.
         $service = $DB->get_record('external_services', [
-                'shortname' => 'moodle_mobile_app',
-                'enabled'   => 1
+            'shortname' => 'moodle_mobile_app',
+            'enabled' => 1
         ]);
         if (empty($service)) {
             throw new moodle_exception('servicenotavailable', 'webservice');
@@ -105,13 +130,7 @@ class local_jwttomoodletoken_external extends external_api {
             die();
         }
 
-        // Get an existing token or create a new one.
-        //        require_once($CFG->dirroot . '/lib/externallib.php');
-        //        $validuntil = time() + $CFG->tokenduration; // Défaut : 12 semaines
-        //        $token = external_generate_token(EXTERNAL_TOKEN_PERMANENT, $service, $user->id, \context_system::instance(),
-        //                $validuntil);
-
-        // Ugly hack.
+        // Ugly hack to get Moodle token
         $realuser = $USER;
         $USER = $user;
         $token = external_generate_token_for_current_user($service);
@@ -120,7 +139,7 @@ class local_jwttomoodletoken_external extends external_api {
         external_log_token_request($token);
 
         return [
-                'moodletoken' => $token->token
+            'moodletoken' => $token->token
         ];
     }
 
@@ -129,9 +148,7 @@ class local_jwttomoodletoken_external extends external_api {
      */
     public static function gettoken_parameters() {
         return new external_function_parameters([
-                'accesstoken' => new external_value(PARAM_RAW_TRIMMED, 'the JWT access token as yielded by keycloak')
+            'accesstoken' => new external_value(PARAM_RAW_TRIMMED, 'the JWT access token')
         ]);
     }
-
 }
-
