@@ -18,14 +18,19 @@
 /**
  * @package    local_jwttomoodletoken
  * @author     Nicolas Dunand <nicolas.dunand@unil.ch>
- * @copyright  2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
+ * @author     Amer Chamseddine <amer@pocketcampus.org>
+ * @copyright  2024 Copyright PocketCampus Sàrl {@link https://pocketcampus.org/}
+ * @copyright  based on work by 2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
-$string['pluginname'] = 'Moodle UNIL JWT to mobiletoken web service';
-$string['pubkey'] = 'Public Key';
-$string['pubalgo'] = 'Signature algorithm';
+$string['pluginname'] = 'OIDC JWT to Moodle Token Resolver';
+$string['pub_key_discovery_url'] = 'Public keys repository URL';
+$string['pub_key_cache_file_path'] = 'Path to the file containing the local cache of the pub keys';
+$string['read_jwt_attribute'] = 'Attribute to be extracted from the JWT token';
+$string['matched_user_attribute'] = 'Field name from the Moodle users DB to be used to match against the extracted attribute from the JWT';
+$string['match_auth_type'] = 'Auth type to be used when looking up Moodle users';
 $string['jwttomoodletoken:usews'] = 'Use web service for jwttomoodletoken';
 

@@ -18,7 +18,9 @@
 /**
  * @package    local_jwttomoodletoken
  * @author     Nicolas Dunand <nicolas.dunand@unil.ch>
- * @copyright  2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
+ * @author     Amer Chamseddine <amer@pocketcampus.org>
+ * @copyright  2024 Copyright PocketCampus Sàrl {@link https://pocketcampus.org/}
+ * @copyright  based on work by 2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -30,11 +32,20 @@ if ($hassiteconfig) {
     $settings =
             new admin_settingpage('local_jwttomoodletoken', new lang_string('pluginname', 'local_jwttomoodletoken'));
 
-    $settings->add(new admin_setting_configtextarea('local_jwttomoodletoken/pubkey',
-            get_string('pubkey', 'local_jwttomoodletoken'), '', '', PARAM_RAW_TRIMMED));
+    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/pub_key_discovery_url',
+        get_string('pub_key_discovery_url', 'local_jwttomoodletoken'), '', '', PARAM_URL));
 
-    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/pubalgo',
-            get_string('pubalgo', 'local_jwttomoodletoken'), '', '', PARAM_ALPHANUM));
+    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/pub_key_cache_file_path',
+        get_string('pub_key_cache_file_path', 'local_jwttomoodletoken'), '', '', PARAM_LOCALURL));
+
+    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/read_jwt_attribute',
+        get_string('read_jwt_attribute', 'local_jwttomoodletoken'), '', '', PARAM_RAW));
+
+    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/matched_user_attribute',
+        get_string('matched_user_attribute', 'local_jwttomoodletoken'), '', '', PARAM_ALPHANUM));
+
+    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/match_auth_type',
+        get_string('match_auth_type', 'local_jwttomoodletoken'), '', '', PARAM_ALPHANUM));
 
     $ADMIN->add('localplugins', $settings);
 }

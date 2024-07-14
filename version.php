@@ -18,13 +18,15 @@
 /**
  * @package    local_jwttomoodletoken
  * @author     Nicolas Dunand <nicolas.dunand@unil.ch>
- * @copyright  2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
+ * @author     Amer Chamseddine <amer@pocketcampus.org>
+ * @copyright  2024 Copyright PocketCampus Sàrl {@link https://pocketcampus.org/}
+ * @copyright  based on work by 2020 Copyright Université de Lausanne, RISET {@link http://www.unil.ch/riset}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version = 2020021201;
+$plugin->version = 2024082300;
 $plugin->requires = 2019052000; // Moodle 3.7
 $plugin->component = 'local_jwttomoodletoken';
 
