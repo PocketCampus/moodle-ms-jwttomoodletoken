@@ -96,28 +96,34 @@ class local_jwttomoodletoken_external extends external_api {
         return [$keys->$kid, $header->alg];
     }
 
-    public static function gettoken($accesstoken) {
-        global $DB, $PAGE, $USER;
+    public static function get_user_from_accesstoken($accesstoken) {
+        global $DB;
 
         list($pubkey, $pubalgo) = self::get_pubkey_by_accesstoken($accesstoken);
+
+        $read_jwt_attribute = get_config('local_jwttomoodletoken', 'read_jwt_attribute');
+        $matched_user_attribute = get_config('local_jwttomoodletoken', 'matched_user_attribute');
+        $match_auth_type = get_config('local_jwttomoodletoken', 'match_auth_type');
+
+        $token_contents = JWT\JWT::decode($accesstoken, new JWT\Key($pubkey, $pubalgo));
+
+        return $DB->get_record('user', [
+            $matched_user_attribute  => $token_contents->$read_jwt_attribute,
+            'auth'      => $match_auth_type,
+            'suspended' => 0,
+            'deleted'   => 0
+        ], '*', MUST_EXIST);
+    }
+
+    public static function gettoken($accesstoken) {
+        global $DB, $PAGE, $USER;
 
         $PAGE->set_url('/webservice/rest/server.php', []);
         $params = self::validate_parameters(self::gettoken_parameters(), [
             'accesstoken' => $accesstoken
         ]);
 
-        $read_jwt_attribute = get_config('local_jwttomoodletoken', 'read_jwt_attribute');
-        $matched_user_attribute = get_config('local_jwttomoodletoken', 'matched_user_attribute');
-        $match_auth_type = get_config('local_jwttomoodletoken', 'match_auth_type');
-
-        $token_contents = JWT\JWT::decode($params['accesstoken'], new JWT\Key($pubkey, $pubalgo));
-
-        $user = $DB->get_record('user', [
-            $matched_user_attribute  => $token_contents->$read_jwt_attribute,
-            'auth'      => $match_auth_type,
-            'suspended' => 0,
-            'deleted'   => 0
-        ], '*', MUST_EXIST);
+        $user = self::get_user_from_accesstoken($params['accesstoken']);
 
         if (!$user) {
             throw new moodle_exception('invaliduser', 'webservice');
