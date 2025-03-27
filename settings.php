@@ -35,9 +35,6 @@ if ($hassiteconfig) {
     $settings->add(new admin_setting_configtext('local_jwttomoodletoken/pub_key_discovery_url',
         get_string('pub_key_discovery_url', 'local_jwttomoodletoken'), '', '', PARAM_URL));
 
-    $settings->add(new admin_setting_configtext('local_jwttomoodletoken/pub_key_cache_file_path',
-        get_string('pub_key_cache_file_path', 'local_jwttomoodletoken'), '', '', PARAM_LOCALURL));
-
     $settings->add(new admin_setting_configtext('local_jwttomoodletoken/read_jwt_attribute',
         get_string('read_jwt_attribute', 'local_jwttomoodletoken'), '', '', PARAM_RAW));
 

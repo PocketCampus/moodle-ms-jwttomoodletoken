@@ -45,11 +45,18 @@ class local_jwttomoodletoken_external extends external_api {
         ]);
     }
 
+    /**
+     * @return string Absolute path to the pub key cache file path
+     */
+    private static function get_pub_key_cache_file_path() {
+        global $CFG;
+        return $CFG->cachedir . "/local_jwttomoodletoken_pubkeys_cache.json";
+    }
+
     private static function update_public_keys() {
         global $CFG;
 
         $pub_key_discovery_url = get_config('local_jwttomoodletoken', 'pub_key_discovery_url');
-        $pub_key_cache_file_path = get_config('local_jwttomoodletoken', 'pub_key_cache_file_path');
 
         $ms_data = file_get_contents($pub_key_discovery_url);
         $keys_object = json_decode($ms_data);
@@ -66,7 +73,8 @@ class local_jwttomoodletoken_external extends external_api {
             $publickey = $keydata['key'];
             $keyDir[$kid] = $publickey;
         }
-        $filepath = $CFG->dirroot . $pub_key_cache_file_path;
+
+        $filepath = self::get_pub_key_cache_file_path();;
         mkdir(dirname($filepath), 0777, true);
         file_put_contents($filepath, json_encode($keyDir));
     }
@@ -74,11 +82,9 @@ class local_jwttomoodletoken_external extends external_api {
     private static function get_pubkey_by_accesstoken($accesstoken) {
         global $CFG;
 
-        $pub_key_cache_file_path = get_config('local_jwttomoodletoken', 'pub_key_cache_file_path');
-
         $header = json_decode(base64_decode(explode('.', $accesstoken)[0], true));
         $kid = $header->kid;
-        $filepath = $CFG->dirroot . $pub_key_cache_file_path;
+        $filepath = self::get_pub_key_cache_file_path();
         if (!is_file($filepath)) {
             self::update_public_keys();
         }
